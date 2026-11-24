@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PaletteForge - Color Palette Generator</title>
+<style>
+/* PaletteForge - color palette generator with harmony rules. Single file. */
+:root{--bg:#0f0f14;--panel:#191923;--line:#2b2b3d;--accent:#f472b6;--accent2:#67e8f9;
+--text:#faf9ff;--muted:#a5a2c0}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:"Segoe UI",system-ui,sans-serif;background:radial-gradient(900px 600px at 30% 0%,#33122b,var(--bg));color:var(--text);min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:28px 16px 48px}
+h1{font-size:clamp(1.5rem,4vw,2rem)} h1 span{color:var(--accent)}
+.sub{color:var(--muted);font-size:.85rem;margin:4px 0 18px}
+#palette{display:flex;width:min(760px,94vw);height:min(340px,44vh);border-radius:18px;overflow:hidden;box-shadow:0 18px 50px rgba(0,0,0,.5);margin-bottom:18px}
+.swatch{flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;padding:14px 6px;cursor:pointer;transition:flex .25s;position:relative}
+.swatch:hover{flex:1.5}
+.hex{font-weight:700;font-size:.9rem;background:rgba(0,0,0,.35);padding:4px 10px;border-radius:8px;letter-spacing:1px}
+.lock{position:absolute;top:12px;font-size:1rem;background:rgba(0,0,0,.35);border:none;color:#fff;border-radius:8px;padding:4px 8px;cursor:pointer}
+.controls{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;margin-bottom:16px}
+select{background:var(--panel);border:1px solid var(--line);color:var(--text);padding:11px 14px;border-radius:11px;font-size:.9rem}
+.btn{background:linear-gradient(135deg,var(--accent),#d946ef);border:none;color:#2b0217;font-weight:700;padding:11px 22px;border-radius:12px;cursor:pointer;font-size:.95rem;transition:transform .15s}
+.btn:hover{transform:translateY(-2px)}
+.btn.ghost{background:transparent;border:1px solid var(--accent2);color:var(--accent2)}
+#cssOut{width:min(760px,94vw);background:#10101a;border:1px solid var(--line);border-radius:12px;padding:14px;font-family:Consolas,monospace;font-size:.8rem;color:var(--accent2);white-space:pre;display:none;margin-bottom:14px}
+#toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--accent2);color:#04202a;font-weight:700;padding:10px 20px;border-radius:99px;opacity:0;transition:opacity .3s;pointer-events:none}
+.hint{color:var(--muted);font-size:.78rem}
+</style>
+</head>
+<body>
+<h1 id="brand">Palette<span>Forge</span></h1>
+<div class="sub" id="tag"></div>
+<div id="palette"></div>
+<div class="controls">
+  <select id="mode">
+    <option value="analogous">Analogous</option>
+    <option value="complementary">Complementary</option>
+    <option value="triadic">Triadic</option>
+    <option value="mono">Monochrome</option>
+    <option value="random">Chaos</option>
+  </select>
+  <button class="btn" id="gen">Generate (Space)</button>
+  <button class="btn ghost" id="cssBtn">Export CSS</button>
+</div>
+<pre id="cssOut"></pre>
+<div class="hint">Click a swatch to copy its hex. Lock colors you love, regenerate the rest.</div>
+<div id="toast">Copied!</div>
+<script>
+/* ============ CONFIG (rebrand here) ============ */
+const CONFIG = { brandName:"PaletteForge", tagline:"Harmonious color palettes, forged in one click.", swatches:5 };
+/* ============ Color math ============ */
+const hsl=(h,s,l)=>({h:(h+360)%360,s,l});
+function toHex({h,s,l}){
+  s/=100; l/=100;
+  const k=n=>(n+h/30)%12, a=s*Math.min(l,1-l);
+  const f=n=>l-a*Math.max(-1,Math.min(k(n)-3,Math.min(9-k(n),1)));
+  return "#"+[f(0),f(8),f(4)].map(v=>Math.round(v*255).toString(16).padStart(2,"0")).join("").toUpperCase();
+}
+function contrast({h,s,l}){ return l>60 ? "#111" : "#fff"; }
+/* ============ Palette generation ============ */
+let colors = [];   // [{hsl, locked}]
+const $ = id => document.getElementById(id);
+function scheme(){
+  const mode=$("mode").value, h=Math.random()*360, s=55+Math.random()*35, l=45+Math.random()*20;
+  const R=Math.random;
+  switch(mode){
+    case "analogous": return [hsl(h,s,l),hsl(h+30,s,l-8),hsl(h+60,s,l+6),hsl(h-25,s-8,l+14),hsl(h+15,s+10,l-16)];
+    case "complementary": return [hsl(h,s,l),hsl(h+180,s,l),hsl(h+20,s-15,l+18),hsl(h+180+20,s-15,l-14),hsl(h,s+10,l+22)];
+    case "triadic": return [hsl(h,s,l),hsl(h+120,s,l),hsl(h+240,s,l),hsl(h+120,s-18,l+16),hsl(h+240,s-18,l-14)];
+    case "mono": return [0,1,2,3,4].map(i=>hsl(h,s,18+i*16));
+    default: return [0,1,2,3,4].map(()=>hsl(R()*360,50+R()*45,30+R()*45));
+  }
+}
+function generate(){
+  const fresh = scheme();
+  colors = colors.map((c,i)=> c && c.locked ? c : {hsl:fresh[i], locked:false});
+  while(colors.length < CONFIG.swatches) colors.push({hsl:fresh[colors.length], locked:false});
+  render();
+}
+function render(){
+  const p=$("palette"); p.innerHTML="";
+  colors.forEach((c,i)=>{
+    const hex=toHex(c.hsl);
+    const d=document.createElement("div");
+    d.className="swatch"; d.style.background=hex;
+    d.innerHTML=`<button class="lock" title="Lock">${c.locked?"&#128274;":"&#128275;"}</button><span class="hex" style="color:${contrast(c.hsl)}">${hex}</span>`;
+    d.onclick=()=>{ copy(hex); };
+    d.querySelector(".lock").onclick=e=>{ e.stopPropagation(); c.locked=!c.locked; render(); };
+    p.appendChild(d);
+  });
+}
+function copy(t){
+  (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).then(()=>toast()).catch(()=>{ 
+    const ta=document.createElement("textarea"); ta.value=t; document.body.appendChild(ta); ta.select();
+    document.execCommand("copy"); ta.remove(); toast();
+  });
+}
+function toast(){ const t=$("toast"); t.style.opacity=1; setTimeout(()=>t.style.opacity=0,1100); }
+$("gen").onclick=generate;
+$("cssBtn").onclick=()=>{
+  const out=$("cssOut");
+  out.style.display = out.style.display==="block" ? "none" : "block";
+  out.textContent=":root{\n"+colors.map((c,i)=>`  --color-${i+1}: ${toHex(c.hsl)};`).join("\n")+"\n}";
+};
+document.addEventListener("keydown",e=>{ if(e.code==="Space"){ e.preventDefault(); generate(); } });
+$("tag").textContent=CONFIG.tagline;
+document.title=CONFIG.brandName+" - Color Palette Generator";
+colors=Array(CONFIG.swatches).fill(null);
+generate();
+</script>
+</body>
+</html>
